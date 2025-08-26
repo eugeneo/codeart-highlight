@@ -1,6 +1,7 @@
 #include <sys/stat.h>
 
 #include <array>
+#include <concepts>
 #include <cstddef>
 #include <span>
 #include <string_view>
@@ -12,49 +13,18 @@
 #include "absl/log/log.h"
 #include "absl/strings/str_join.h"
 
+#include "src/tools/tokenizer.h"
+#include "uchen/tensor/float_tensor.h"
+
 namespace uchen::layers {
 
-template <typename T, size_t Dim0, size_t... Dims>
-class Tensor {
- public:
-  static constexpr size_t dims[sizeof...(Dims) + 1] = {Dim0, Dims...};
-
-  Tensor() {
-    LOG(INFO) << "Tensor<" << (sizeof...(Dims) + 1)
-              << ">: " << absl::StrJoin(dims, "x");
-  }
-
-  Tensor(Tensor&&) {
-    LOG(INFO) << "Tensor<" << (sizeof...(Dims) + 1) << ">: move";
-  }
-  // Tensor implementation details...
-};
-
-template <size_t... Dims>
-using FloatTensor = Tensor<float, Dims...>;
+using uchen::core::FloatTensor;
 
 template <typename T>
 struct BIOToken {
   enum class BIO { kBegin, kInside, kOutside };
   T value;
   BIO bio;
-};
-
-template <size_t BatchSize, size_t MaxLineLen>
-FloatTensor<BatchSize, MaxLineLen, 550> Tokenize(
-    std::span<const std::string_view, BatchSize> code) {
-  return {};
-}
-
-template <size_t MaxLineLen, size_t EmbeddingDimensions, size_t TokenTypes>
-class EmbeddingsLayer {
- public:
-  template <size_t BatchSize>
-  Tensor<float, BatchSize, MaxLineLen, EmbeddingDimensions> operator()(
-      const FloatTensor<BatchSize, MaxLineLen, TokenTypes>& input) const {
-    // Embedding logic...
-    return {};
-  }
 };
 
 template <size_t MaxLineLen, size_t EmbeddingDimensions,
@@ -149,7 +119,6 @@ enum class TokenType {
 template <size_t MaxLineLen, size_t EmbeddingDimensions>
 class CodeartHighlightModel {
  public:
-  static constexpr size_t kTokenTypes = 550;  // 8 of TokenType x 3 B,I,O
   static constexpr size_t kEncodeDims = 256;
 
   template <size_t BatchSize>
@@ -164,8 +133,13 @@ class CodeartHighlightModel {
           TokenType::kUnknown,
           uchen::layers::BIOToken<TokenType>::BIO::kOutside});
     }
-    return uchen::layers::DecodeCRF<TokenType>(
-        dnn(uchen::layers::Tokenize<BatchSize, MaxLineLen>(code)));
+    codeart::highlight::Tokenizer tokenizer;
+    uchen::core::OneHotTensor<BatchSize, MaxLineLen, tokenizer.kVocabSize>
+        one_hot;
+    for (size_t i = 0; i < BatchSize; ++i) {
+      one_hot[i] = tokenizer.tokenize<MaxLineLen>(code[i]);
+    }
+    return uchen::layers::DecodeCRF<TokenType>(dnn(one_hot));
   }
 
  private:
@@ -178,7 +152,8 @@ class CodeartHighlightModel {
   }
 
   std::tuple<
-      uchen::layers::EmbeddingsLayer<MaxLineLen, EmbeddingDimensions, 550>,
+      codeart::highlight::EmbeddingsLayer<
+          EmbeddingDimensions, codeart::highlight::Tokenizer::kVocabSize>,
       uchen::layers::EncoderLayer<MaxLineLen, EmbeddingDimensions, kEncodeDims>,
       uchen::layers::ClassificationLayer<MaxLineLen, kEncodeDims, 256>>
       layers_;

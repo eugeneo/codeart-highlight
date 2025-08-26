@@ -1,12 +1,25 @@
-load("@rules_cc//cc:defs.bzl", "cc_binary")
+load("@rules_cc//cc:defs.bzl", "cc_binary", "cc_library")
 
 cc_binary(
     name = "basic",
     srcs = ["basic.cc"],
     deps = [
-        "@abseil-cpp//absl/strings",
+        ":tokenizer",
         "@abseil-cpp//absl/log",
-        "@abseil-cpp//absl/log:initialize",
         "@abseil-cpp//absl/log:globals",
+        "@abseil-cpp//absl/log:initialize",
+        "@abseil-cpp//absl/strings",
+        "@uchen-core//uchen/tensor",
+    ],
+)
+
+cc_library(
+    name = "tokenizer",
+    srcs = ["tokenizer.cc"],
+    hdrs = ["tokenizer.h"],
+    deps = [
+        "@abseil-cpp//absl/log",
+        "@abseil-cpp//absl/strings",
+        "@uchen-core//uchen/tensor",
     ],
 )
