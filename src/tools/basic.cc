@@ -1,11 +1,9 @@
 #include <sys/stat.h>
 
 #include <array>
-#include <concepts>
 #include <cstddef>
 #include <span>
 #include <string_view>
-#include <tuple>
 #include <type_traits>
 
 #include "absl/log/globals.h"
@@ -13,6 +11,8 @@
 #include "absl/log/log.h"
 #include "absl/strings/str_join.h"
 
+#include "src/tools/encoder.h"
+#include "src/tools/neural_network.h"
 #include "src/tools/tokenizer.h"
 #include "uchen/tensor/float_tensor.h"
 
@@ -27,31 +27,13 @@ struct BIOToken {
   BIO bio;
 };
 
-template <size_t MaxLineLen, size_t EmbeddingDimensions,
-          size_t EncoderDimensions>
-class EncoderLayer {
- public:
-  template <size_t BatchSize>
-  FloatTensor<BatchSize, MaxLineLen, EncoderDimensions> operator()(
-      const FloatTensor<BatchSize, MaxLineLen, EmbeddingDimensions>& embeddings)
-      const {
-    //         X = embeddings
-    // for i in 0..N-1:
-    //     attn_out  = MultiHeadAttention(X)
-    //     X         = ResidualNorm(X, Dropout(attn_out))
-    //     ffn_out   = FeedForward(X)
-    //     X         = ResidualNorm(X, Dropout(ffn_out))
-    // encoded = X
-    return {};
-  }
-};
-
 template <size_t MaxLineLen, size_t EmbeddingDimensions, size_t TokenTypes>
 class ClassificationLayer {
  public:
   template <size_t BatchSize>
   FloatTensor<BatchSize, MaxLineLen, TokenTypes> operator()(
-      const FloatTensor<BatchSize, MaxLineLen, TokenTypes>& encoded) const {
+      const FloatTensor<BatchSize, MaxLineLen, EmbeddingDimensions>& encoded)
+      const {
     return {};
   }
 };
@@ -68,39 +50,6 @@ auto DecodeCRF(const auto& logits) {
   }
   return result;
 }
-
-template <typename I, typename L>
-class LayerStacking {
- public:
-  LayerStacking(const I& input, const L& layer)
-      : input_(input), layer_(layer) {}
-
-  auto result() const { return layer_(input_); }
-
-  template <typename L1>
-  auto operator>(const L1& next_layer) const {
-    return LayerStacking<std::remove_cvref_t<decltype(result())>, L1>(
-        result(), next_layer);
-  }
-
- private:
-  const I& input_;
-  const L& layer_;
-};
-
-template <typename T>
-class InputRef {
- public:
-  explicit InputRef(const T& input) : input_(input) {}
-
-  template <typename L>
-  auto operator>(const L& layer) const {
-    return LayerStacking(input_, layer);
-  }
-
- private:
-  const T& input_;
-};
 
 }  // namespace uchen::layers
 
@@ -119,7 +68,9 @@ enum class TokenType {
 template <size_t MaxLineLen, size_t EmbeddingDimensions>
 class CodeartHighlightModel {
  public:
-  static constexpr size_t kEncodeDims = 256;
+  constexpr CodeartHighlightModel() {
+    dnn_.template get_layer<0>().set_parameters(&embeddings_params_);
+  }
 
   template <size_t BatchSize>
   std::array<std::array<uchen::layers::BIOToken<TokenType>, MaxLineLen>,
@@ -139,24 +90,25 @@ class CodeartHighlightModel {
     for (size_t i = 0; i < BatchSize; ++i) {
       one_hot[i] = tokenizer.tokenize<MaxLineLen>(code[i]);
     }
-    return uchen::layers::DecodeCRF<TokenType>(dnn(one_hot));
+    return uchen::layers::DecodeCRF<TokenType>(dnn_(one_hot));
   }
 
  private:
-  auto dnn(const auto& input) const {
-    return std::apply(
-        [&](auto&... ls) {
-          return (uchen::layers::InputRef(input) > ... > ls).result();
-        },
-        layers_);
-  }
+  struct HyperParams {
+    static constexpr size_t kMaxLineLen = MaxLineLen;
+    static constexpr size_t kEmbeddingDimensions = EmbeddingDimensions;
+    static constexpr size_t kTokenTypes =
+        codeart::highlight::Tokenizer::kVocabSize;
+  };
 
-  std::tuple<
-      codeart::highlight::EmbeddingsLayer<
-          EmbeddingDimensions, codeart::highlight::Tokenizer::kVocabSize>,
-      uchen::layers::EncoderLayer<MaxLineLen, EmbeddingDimensions, kEncodeDims>,
-      uchen::layers::ClassificationLayer<MaxLineLen, kEncodeDims, 256>>
-      layers_;
+  codeart::highlight::EmbeddingsLayer<HyperParams>::Parameters
+      embeddings_params_;
+
+  uchen::core::NeuralNetwork<
+      codeart::highlight::EmbeddingsLayer<HyperParams>,
+      uchen::layers::EncoderLayer<MaxLineLen, EmbeddingDimensions, 4>,
+      uchen::layers::ClassificationLayer<MaxLineLen, EmbeddingDimensions, 256>>
+      dnn_;
 };
 
 char TokenLabel(const uchen::layers::BIOToken<TokenType>& type) {
@@ -183,7 +135,8 @@ char TokenLabel(const uchen::layers::BIOToken<TokenType>& type) {
 }
 
 void ClassifyTokens(std::string_view code) {
-  CodeartHighlightModel<200, 10> model;
+  CodeartHighlightModel<200, 16> model;
+  LOG(INFO) << "Model size: " << sizeof(model);
   std::span<const std::string_view, 1> batch(&code, 1);
   auto tokens = model.Highlight(batch);
   LOG(INFO) << "Code: " << code;

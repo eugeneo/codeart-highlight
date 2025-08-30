@@ -4,6 +4,7 @@ cc_binary(
     name = "basic",
     srcs = ["basic.cc"],
     deps = [
+        ":neural_network",
         ":tokenizer",
         "@abseil-cpp//absl/log",
         "@abseil-cpp//absl/log:globals",
@@ -11,6 +12,16 @@ cc_binary(
         "@abseil-cpp//absl/strings",
         "@uchen-core//uchen/tensor",
     ],
+)
+
+cc_library(
+    name = "neural_network",
+    srcs = ["encoder.cc"],
+    hdrs = [
+        "encoder.h",
+        "neural_network.h",
+    ],
+    deps = ["@uchen-core//uchen/tensor"],
 )
 
 cc_library(
