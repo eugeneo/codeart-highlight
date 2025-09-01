@@ -7,14 +7,10 @@ namespace uchen::core {
 template <typename... Layers>
   requires(sizeof...(Layers) > 0)
 class NeuralNetwork {
-
-
  public:
-  constexpr NeuralNetwork() = default;
-
   template <size_t I>
     requires(I < sizeof...(Layers))
-  auto& get_layer() {
+  constexpr auto& get_layer() {
     return std::get<I>(layers_);
   }
 

@@ -68,8 +68,11 @@ enum class TokenType {
 template <size_t MaxLineLen, size_t EmbeddingDimensions>
 class CodeartHighlightModel {
  public:
-  constexpr CodeartHighlightModel() {
+  static constexpr size_t kAttentionHeads = 4;
+
+  constexpr CodeartHighlightModel() : embeddings_params_() {
     dnn_.template get_layer<0>().set_parameters(&embeddings_params_);
+    dnn_.template get_layer<1>().set_parameters(&encoder_params_);
   }
 
   template <size_t BatchSize>
@@ -81,8 +84,8 @@ class CodeartHighlightModel {
         result;
     for (auto& line : result) {
       line.fill(uchen::layers::BIOToken<TokenType>{
-          TokenType::kUnknown,
-          uchen::layers::BIOToken<TokenType>::BIO::kOutside});
+          .value = TokenType::kUnknown,
+          .bio = uchen::layers::BIOToken<TokenType>::BIO::kOutside});
     }
     codeart::highlight::Tokenizer tokenizer;
     uchen::core::OneHotTensor<BatchSize, MaxLineLen, tokenizer.kVocabSize>
@@ -103,10 +106,13 @@ class CodeartHighlightModel {
 
   codeart::highlight::EmbeddingsLayer<HyperParams>::Parameters
       embeddings_params_;
+  uchen::layers::EncoderLayer<MaxLineLen, EmbeddingDimensions,
+                              kAttentionHeads>::Parameters encoder_params_;
 
   uchen::core::NeuralNetwork<
       codeart::highlight::EmbeddingsLayer<HyperParams>,
-      uchen::layers::EncoderLayer<MaxLineLen, EmbeddingDimensions, 4>,
+      uchen::layers::EncoderLayer<MaxLineLen, EmbeddingDimensions,
+                                  kAttentionHeads>,
       uchen::layers::ClassificationLayer<MaxLineLen, EmbeddingDimensions, 256>>
       dnn_;
 };
@@ -135,10 +141,10 @@ char TokenLabel(const uchen::layers::BIOToken<TokenType>& type) {
 }
 
 void ClassifyTokens(std::string_view code) {
-  CodeartHighlightModel<200, 16> model;
-  LOG(INFO) << "Model size: " << sizeof(model);
+  static constexpr CodeartHighlightModel<200, 16> kModel;
+  LOG(INFO) << "Model size: " << sizeof(kModel);
   std::span<const std::string_view, 1> batch(&code, 1);
-  auto tokens = model.Highlight(batch);
+  auto tokens = kModel.Highlight(batch);
   LOG(INFO) << "Code: " << code;
   LOG(INFO) << "Tokens: "
             << absl::StrJoin(tokens[0], "", [](auto* out, const auto& t) {

@@ -3,12 +3,14 @@
 
 #include <array>
 #include <cstddef>
+#include <span>
 #include <string_view>
 
 #include "uchen/tensor/special_tensors.h"
 
 namespace codeart::highlight {
 namespace impl {
+
 void ExtractEmbeddings(std::span<std::span<const float>> output,
                        std::span<const float> parameters,
                        std::span<const uint32_t> input, size_t embedding_width);
@@ -23,7 +25,6 @@ class Tokenizer {
   };
 
   static constexpr size_t kSpecialTokenCount = 3;
-
   static constexpr size_t kVocabSize =
       /* <begin>/<end>/<unknown> */ kSpecialTokenCount + /* byte*/ 256;
 
@@ -44,6 +45,8 @@ class EmbeddingsLayer {
  public:
   class Parameters {
    public:
+    constexpr Parameters() : weights{} { weights.fill(0.0f); }
+
     std::span<const float> data() const { return weights; }
 
    private:
@@ -51,18 +54,19 @@ class EmbeddingsLayer {
                HyperParams::kEmbeddingDimensions * HyperParams::kTokenTypes>
         weights;
   };
+  template <size_t BatchSize>
+  using result_t =
+      uchen::core::RowProjectionsTensor<BatchSize, HyperParams::kMaxLineLen,
+                                        HyperParams::kEmbeddingDimensions>;
 
-  void set_parameters(const Parameters* params) { params_ = params; }
+  constexpr void set_parameters(const Parameters* params) { params_ = params; }
 
   template <size_t BatchSize>
-  uchen::core::RowProjectionsTensor<BatchSize, HyperParams::kMaxLineLen,
-                                    HyperParams::kEmbeddingDimensions>
-  operator()(
+  result_t<BatchSize> operator()(
       const uchen::core::OneHotTensor<BatchSize, HyperParams::kMaxLineLen,
                                       HyperParams::kTokenTypes>& input) const {
-    uchen::core::RowProjectionsTensor<BatchSize, HyperParams::kMaxLineLen,
-                                      HyperParams::kEmbeddingDimensions>
-        result;
+    CHECK_NE(params_, nullptr);
+    result_t<BatchSize> result;
     impl::ExtractEmbeddings(result.flat_data(), params_->data(), input.data(),
                             HyperParams::kEmbeddingDimensions);
     return result;
