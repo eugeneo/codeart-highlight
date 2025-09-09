@@ -2,7 +2,9 @@
 
 #include <cstddef>
 
-#include "absl/log/log.h"
+#include "absl/log/log.h"  // IWYU pragma: keep
+
+#include "uchen/tensor/function.h"
 
 namespace uchen::layers::details {
 
@@ -12,20 +14,6 @@ using uchen::core::BasicTensor;
 using uchen::core::TensorProjection;
 
 namespace {
-
-AssignableProjection DimSlice(AssignableTensor& input, size_t dim, size_t start,
-                              size_t size) {
-  return {};
-}
-
-// TensorProjection DimSlice(const BasicTensor& input, size_t dim, size_t start,
-//                           size_t size) {
-//   LOG(FATAL) << "Not implemented";
-// }
-
-TensorProjection Transpose(const BasicTensor& input) {
-  LOG(FATAL) << "Not implemented";
-}
 
 class SoftmaxOperation final
     : public uchen::core::AssignableTensor::Assignable {};
@@ -59,18 +47,19 @@ void MultiHeadAttentionImpl::process(const BasicTensor& input,
   const size_t model_dim = output.dim(2);
   AssignableTensor& kqv = scratch.kqv;
   kqv = input * params.kqv_weights();
-  auto k = DimSlice(kqv, 1, 0, model_dim);
-  auto q = DimSlice(kqv, 1, model_dim, model_dim);
-  auto v = DimSlice(kqv, 1, model_dim * 2, model_dim);
+  auto k = TensorProjection::dim_slice(kqv, 1, 0, model_dim);
+  auto q = TensorProjection::dim_slice(kqv, 1, model_dim, model_dim);
+  auto v = TensorProjection::dim_slice(kqv, 1, model_dim * 2, model_dim);
   const size_t HEADS = heads();
   const size_t head_dim = model_dim / HEADS;
   AssignableTensor& smax = scratch.smax;
   for (size_t head = 0; head < HEADS; ++head) {
-    auto head_k = DimSlice(k, 2, head * head_dim, head_dim);
-    auto head_q = DimSlice(q, 2, head * head_dim, head_dim);
-    auto head_v = DimSlice(v, 2, head * head_dim, head_dim);
-    smax = Softmax((head_q * Transpose(head_k)) / sqrt(head_dim));
-    DimSlice(output, 2, head * head_dim, head_dim) = smax * head_v;
+    auto head_k = TensorProjection::dim_slice(k, 2, head * head_dim, head_dim);
+    auto head_q = TensorProjection::dim_slice(q, 2, head * head_dim, head_dim);
+    auto head_v = TensorProjection::dim_slice(v, 2, head * head_dim, head_dim);
+    smax = Softmax((head_q * uchen::core::Transpose(head_k)) / sqrt(head_dim));
+    AssignableProjection::dim_slice(output, 2, head * head_dim, head_dim) =
+        smax * head_v;
   }
 }
 

@@ -4,7 +4,6 @@
 #include <cstddef>
 #include <span>
 #include <string_view>
-#include <type_traits>
 
 #include "absl/log/globals.h"
 #include "absl/log/initialize.h"
@@ -38,11 +37,10 @@ class ClassificationLayer {
   }
 };
 
-template <typename TokenType>
-auto DecodeCRF(const auto& logits) {
-  std::array<std::array<BIOToken<TokenType>,
-                        std::remove_cvref_t<decltype(logits)>::dims[1]>,
-             std::remove_cvref_t<decltype(logits)>::dims[0]>
+template <typename TokenType, typename Tensor>
+auto DecodeCRF(const Tensor& logits) {
+  std::array<std::array<BIOToken<TokenType>, Tensor::kDims[1]>,
+             Tensor::kDims[0]>
       result;
   for (auto& line : result) {
     line.fill(BIOToken<TokenType>{TokenType::kUnknown,
@@ -141,7 +139,7 @@ char TokenLabel(const uchen::layers::BIOToken<TokenType>& type) {
 }
 
 void ClassifyTokens(std::string_view code) {
-  static constexpr CodeartHighlightModel<200, 16> kModel;
+  CodeartHighlightModel<200, 16> kModel;
   LOG(INFO) << "Model size: " << sizeof(kModel);
   std::span<const std::string_view, 1> batch(&code, 1);
   auto tokens = kModel.Highlight(batch);
